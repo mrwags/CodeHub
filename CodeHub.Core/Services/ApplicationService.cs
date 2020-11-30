@@ -30,18 +30,6 @@ namespace CodeHub.Core.Services
             Client = null;
         }
 
-        public void ActivateUser(Account account, Client client)
-        {
-            _accountsService.SetActiveAccount(account).Wait();
-            Account = account;
-            Client = client;
-
-            var domain = account.Domain ?? Client.DefaultApi;
-            var credentials = new Octokit.Credentials(account.OAuth);
-            var oldClient = Client.BasicOAuth(account.OAuth, domain);
-            GitHubClient = OctokitClientFactory.Create(new Uri(domain), credentials);
-        }
-
         public void SetUserActivationAction(Action action)
         {
             if (Account != null)
@@ -51,5 +39,36 @@ namespace CodeHub.Core.Services
         }
 
         public Task UpdateActiveAccount() => _accountsService.Save(Account);
+
+        public async Task LoginAccount(Account account)
+        {
+            var domain = account.Domain ?? Client.DefaultApi;
+            Client client = null;
+            Octokit.Credentials credentials = null;
+
+            if (!string.IsNullOrEmpty(account.OAuth))
+            {
+                client = Client.BasicOAuth(account.OAuth, domain);
+                credentials = new Octokit.Credentials(account.OAuth);
+            }
+            else if (account.IsEnterprise || !string.IsNullOrEmpty(account.Password))
+            {
+                client = Client.Basic(account.Username, account.Password, domain);
+                credentials = new Octokit.Credentials(account.Username, account.Password);
+            }
+
+            var octoClient = OctokitClientFactory.Create(new Uri(domain), credentials);
+            var user = await octoClient.User.Current();
+            account.Username = user.Login;
+            account.AvatarUrl = user.AvatarUrl;
+            client.Username = user.Login;
+
+            await _accountsService.Save(account);
+            await _accountsService.SetActiveAccount(account);
+
+            Account = account;
+            Client = client;
+            GitHubClient = octoClient;
+        }
     }
 }

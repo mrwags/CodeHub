@@ -16,10 +16,10 @@ namespace CodeHub.Core.Services
 
         void DeactivateUser();
 
-        void ActivateUser(Account account, GitHubSharp.Client client);
-
         void SetUserActivationAction(Action action);
 
         Action ActivationAction { get; set; }
+
+        Task LoginAccount(Account account);
     }
 }

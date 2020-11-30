@@ -1,7 +1,6 @@
 using System;
 using CodeHub.Core.Services;
 using System.Linq;
-using CodeHub.Core.Factories;
 using System.Windows.Input;
 using Dumb = MvvmCross.Core.ViewModels;
 using System.Threading.Tasks;
@@ -16,7 +15,6 @@ namespace CodeHub.Core.ViewModels.App
         private bool _isLoggingIn;
         private string _status;
         private Uri _imageUrl;
-        private readonly ILoginFactory _loginFactory;
         private readonly IApplicationService _applicationService;
         private readonly IAccountsService _accountsService;
 
@@ -52,11 +50,9 @@ namespace CodeHub.Core.ViewModels.App
         public ReactiveCommand<Unit, Unit> GoToNewAccount { get; } = ReactiveCommand.Create(() => { });
 
         public StartupViewModel(
-            ILoginFactory loginFactory = null, 
             IApplicationService applicationService = null,
             IAccountsService accountsService = null)
         {
-            _loginFactory = loginFactory ?? GetService<ILoginFactory>();
             _applicationService = applicationService ?? GetService<IApplicationService>();
             _accountsService = accountsService ?? GetService<IAccountsService>();
         }
@@ -91,17 +87,16 @@ namespace CodeHub.Core.ViewModels.App
                 ImageUrl = accountAvatarUri;
                 Status = "Logging in as " + account.Username;
 
-                var client = await _loginFactory.LoginAccount(account);
-                _applicationService.ActivateUser(account, client);
+                await _applicationService.LoginAccount(account);
 
                 if (!isEnterprise)
                     StarOrWatch();
 
                 GoToMenu.ExecuteNow();
             }
-            catch (GitHubSharp.UnauthorizedException e)
+            catch (Octokit.AuthorizationException e)
             {
-                DisplayAlertAsync("The credentials for the selected account are incorrect. " + e.Message)
+                DisplayAlertAsync("The credentials for the selected account are not valid. " + e.Message)
                     .ToObservable()
                     .BindCommand(GoToAccounts);
             }
@@ -114,29 +109,33 @@ namespace CodeHub.Core.ViewModels.App
             {
                 IsLoggingIn = false;
             }
-
         }
 
         private void StarOrWatch()
         {
-            try
+            if (Settings.ShouldStar)
             {
-                if (Settings.ShouldStar)
-                {
-                    Settings.ShouldStar = false;
-                    var starRequest = _applicationService.Client.Users["thedillonb"].Repositories["codehub"].Star();
-                    _applicationService.Client.ExecuteAsync(starRequest).ToBackground();
-                }
+                Settings.ShouldStar = false;
 
-                if (Settings.ShouldWatch)
-                {
-                    Settings.ShouldWatch = false;
-                    var watchRequest = _applicationService.Client.Users["thedillonb"].Repositories["codehub"].Watch();
-                    _applicationService.Client.ExecuteAsync(watchRequest).ToBackground();
-                }
+                _applicationService
+                    .GitHubClient.Activity.Starring
+                    .StarRepo("thedillonb", "codehub")
+                    .ToBackground();
             }
-            catch
+
+            if (Settings.ShouldWatch)
             {
+                Settings.ShouldWatch = false;
+
+                var subscription = new Octokit.NewSubscription
+                {
+                    Subscribed = true
+                };
+
+                _applicationService
+                    .GitHubClient.Activity.Watching
+                    .WatchRepo("thedillonb", "codehub", subscription)
+                    .ToBackground();
             }
         }
     }
